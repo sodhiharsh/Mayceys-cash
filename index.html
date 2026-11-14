@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#173d32">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Mayceys Cash">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Mayceys Cash</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17251f;background:#f4f7f4}
+*{box-sizing:border-box}body{margin:0;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+main{max-width:680px;margin:auto;padding:18px 15px 35px}
+header{display:flex;align-items:center;gap:12px;margin:8px 0 20px}
+.logo{width:52px;height:52px;border-radius:16px;background:#f0aa35;color:#173d32;display:grid;place-items:center;font-weight:900;font-size:22px}
+h1{font-size:23px;margin:0}header p{margin:3px 0 0;color:#607168;font-size:13px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.card{background:white;border:1px solid #e0e8e1;border-radius:16px;padding:15px;box-shadow:0 2px 8px #102d1710}
+.label{color:#64746b;font-size:13px}.total{font-size:26px;font-weight:800;margin:5px 0}.small{font-size:12px;color:#738178}
+h2{font-size:18px;margin:0 0 13px}
+section{margin-top:14px}
+label{display:block;font-size:13px;font-weight:650;margin:0 0 6px}
+input,textarea{width:100%;padding:12px;border:1px solid #d5dfd7;border-radius:10px;font:inherit;background:#fff;color:#17251f}
+textarea{resize:vertical;min-height:70px}
+.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field{margin-bottom:12px}
+button{border:0;border-radius:11px;padding:12px 14px;font:inherit;font-weight:700;cursor:pointer}
+.primary{background:#174b39;color:#fff;width:100%}.secondary{background:#edf3ee;color:#244535}
+.actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{flex:1}
+.row{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.entry{border-top:1px solid #e8eee9;padding:13px 0}
+.entry:first-child{border-top:0}.shop{font-weight:750;overflow-wrap:anywhere}.amount{font-weight:800;white-space:nowrap}
+.meta,.note{font-size:12px;color:#6d7b72;margin-top:4px}.note{font-size:13px}
+.tools{display:flex;gap:8px;margin:10px 0}.tools input{flex:1;min-width:0}
+.pill{font-size:12px;background:#e7f2e9;color:#24563a;padding:5px 9px;border-radius:99px}
+.notice{font-size:12px;line-height:1.5;color:#65736a;margin-top:16px}
+.hidden{display:none!important}
+@media(max-width:390px){.total{font-size:22px}.formgrid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<header><div class="logo">M$</div><div><h1>Mayceys Cash</h1><p>Personal cash collection book · NZD</p></div><span class="pill" style="margin-left:auto">Offline-ready</span></header>
+<div class="grid">
+ <div class="card"><div class="label">Today's cash</div><div class="total" id="todayTotal">$0.00</div><div class="small" id="todayCount">0 payments</div></div>
+ <div class="card"><div class="label">This week's cash</div><div class="total" id="weekTotal">$0.00</div><div class="small" id="weekCount">0 payments</div></div>
+</div>
+<section class="card">
+ <h2 id="formTitle">＋ Record cash payment</h2>
+ <form id="cashForm">
+  <div class="field"><label for="shop">Shop / customer name *</label><input id="shop" required autocomplete="organization" placeholder="e.g. ABC Dairy"></div>
+  <div class="formgrid">
+   <div class="field"><label for="amount">Cash received (NZD) *</label><input id="amount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00"></div>
+   <div class="field"><label for="invoice">Invoice number</label><input id="invoice" placeholder="e.g. INV-105"></div>
+  </div>
+  <div class="field"><label for="date">Date and time *</label><input id="date" type="datetime-local" required></div>
+  <div class="field"><label for="notes">Notes</label><textarea id="notes" placeholder="Optional details"></textarea></div>
+  <div class="actions"><button class="primary" id="saveBtn">Save payment</button><button class="secondary hidden" id="cancelBtn" type="button">Cancel edit</button></div>
+ </form><p class="small" id="message" aria-live="polite"></p>
+</section>
+<section class="card">
+ <div class="row"><h2>Payment history</h2><span class="small" id="count">0 records</span></div>
+ <div class="tools"><input id="search" placeholder="Search shop or invoice" aria-label="Search records"><button class="secondary" id="exportBtn" type="button">Export CSV</button></div>
+ <div class="actions" style="margin-bottom:8px"><button class="secondary" id="allBtn" type="button">All records</button><button class="secondary" id="weekBtn" type="button">This week</button></div>
+ <div id="records"><p class="small">No payments recorded yet.</p></div>
+</section>
+<p class="notice">Records are stored only in this browser on this device. They are not synced or backed up automatically. Export a CSV backup regularly. Do not enter customer payment details unless your employer permits this recordkeeping method. Clearing Safari website data can erase your records.</p>
+</main>
+<script>
+(()=> {
+ const $=id=>document.getElementById(id), KEY='mayceys_cash_v1';
+ let rows=[],editing=null,filter='all';
+ try{rows=JSON.parse(localStorage.getItem(KEY)||'[]');if(!Array.isArray(rows))rows=[]}catch(e){rows=[]}
+ const money=n=>new Intl.NumberFormat('en-NZ',{style:'currency',currency:'NZD'}).format(n);
+ const pad=n=>String(n).padStart(2,'0');
+ const localISO=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+ const monday=d=>{let x=new Date(d.getFullYear(),d.getMonth(),d.getDate());x.setDate(x.getDate()-(x.getDay()+6)%7);return x};
+ const start=monday(new Date()),end=new Date(start);end.setDate(end.getDate()+7);
+ const isWeek=r=>{let d=new Date(r.date);return d>=start&&d<end};
+ const isToday=r=>{let d=new Date(r.date),n=new Date();return d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth()&&d.getDate()===n.getDate()};
+ function save(){try{localStorage.setItem(KEY,JSON.stringify(rows));return true}catch(e){$('message').textContent='Unable to save: device storage may be full.';return false}}
+ function reset(){editing=null;$('cashForm').reset();$('date').value=localISO(new Date());$('formTitle').textContent='＋ Record cash payment';$('saveBtn').textContent='Save payment';$('cancelBtn').classList.add('hidden')}
+ function render(){
+  const today=rows.filter(isToday),week=rows.filter(isWeek);
+  $('todayTotal').textContent=money(today.reduce((s,r)=>s+r.amount,0));$('todayCount').textContent=today.length+' payments';
+  $('weekTotal').textContent=money(week.reduce((s,r)=>s+r.amount,0));$('weekCount').textContent=week.length+' payments (Mon–Sun)';
+  $('count').textContent=rows.length+' records';
+  let q=$('search').value.trim().toLowerCase();
+  let list=rows.filter(r=>(filter==='all'||isWeek(r))&&(!q||r.shop.toLowerCase().includes(q)||(r.invoice||'').toLowerCase().includes(q))).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  $('records').replaceChildren();
+  if(!list.length){let p=document.createElement('p');p.className='small';p.textContent='No matching payments found.';$('records').append(p);return}
+  list.forEach(r=>{
+   let wrap=document.createElement('div');wrap.className='entry';
+   let top=document.createElement('div');top.className='row';
+   let left=document.createElement('div');left.style.minWidth='0';
+   let shop=document.createElement('div');shop.className='shop';shop.textContent=r.shop;
+   let meta=document.createElement('div');meta.className='meta';meta.textContent=(r.invoice?'Invoice: '+r.invoice+' · ':'')+new Date(r.date).toLocaleString('en-NZ');
+   left.append(shop,meta);let amt=document.createElement('div');amt.className='amount';amt.textContent=money(r.amount);top.append(left,amt);wrap.append(top);
+   if(r.notes){let note=document.createElement('div');note.className='note';note.textContent=r.notes;wrap.append(note)}
+   let actions=document.createElement('div');actions.className='actions';actions.style.marginTop='9px';
+   let edit=document.createElement('button');edit.className='secondary';edit.type='button';edit.textContent='Edit';edit.onclick=()=>loadEdit(r.id);
+   let del=document.createElement('button');del.className='secondary';del.type='button';del.textContent='Delete';del.onclick=()=>{if(confirm('Delete payment for '+r.shop+'?')){rows=rows.filter(x=>x.id!==r.id);if(save())render()}};
+   actions.append(edit,del);wrap.append(actions);$('records').append(wrap);
+  })
+ }
+ function loadEdit(id){let r=rows.find(x=>x.id===id);if(!r)return;editing=id;$('shop').value=r.shop;$('amount').value=r.amount;$('invoice').value=r.invoice||'';$('date').value=r.date;$('notes').value=r.notes||'';$('formTitle').textContent='Edit cash payment';$('saveBtn').textContent='Update payment';$('cancelBtn').classList.remove('hidden');window.scrollTo({top:0,behavior:'smooth'})}
+ $('cashForm').addEventListener('submit',e=>{e.preventDefault();let shop=$('shop').value.trim(),amount=Number($('amount').value),date=$('date').value;if(!shop||!Number.isFinite(amount)||amount<=0||!date||isNaN(new Date(date))){$('message').textContent='Please check the required fields.';return}
+  let record={id:editing||('p'+Date.now()+Math.random().toString(36).slice(2)),shop,amount:Math.round(amount*100)/100,invoice:$('invoice').value.trim(),date,notes:$('notes').value.trim()};
+  rows=editing?rows.map(r=>r.id===editing?record:r):[...rows,record];if(save()){reset();render();$('message').textContent='Payment saved on this device.'}
+ });
+ $('cancelBtn').onclick=reset;$('search').oninput=render;$('allBtn').onclick=()=>{filter='all';render()};$('weekBtn').onclick=()=>{filter='week';render()};
+ $('exportBtn').onclick=()=>{if(!rows.length){$('message').textContent='No records to export.';return}let data=[['Shop','Amount NZD','Invoice','Date and time','Notes'],...rows.map(r=>[r.shop,r.amount.toFixed(2),r.invoice,r.date,r.notes])];let csv=data.map(a=>a.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');let blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Mayceys-Cash-Backup.csv';a.click();URL.revokeObjectURL(url)};
+ reset();render();
+ if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+})();
+</script>
+</body></html>
