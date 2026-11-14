@@ -63,7 +63,8 @@ button{border:0;border-radius:11px;padding:12px 14px;font:inherit;font-weight:70
 </section>
 <section class="card">
  <div class="row"><h2>Payment history</h2><span class="small" id="count">0 records</span></div>
- <div class="tools"><input id="search" placeholder="Search shop or invoice" aria-label="Search records"><button class="secondary" id="exportBtn" type="button">Export CSV</button></div>
+ <div class="tools"><input id="search" placeholder="Search shop or invoice" aria-label="Search records"></div>
+ <div class="actions" style="margin:8px 0 12px"><button class="secondary" id="exportBtn" type="button">Export CSV</button><button class="secondary" id="pdfBtn" type="button">Download PDF</button></div>
  <div class="actions" style="margin-bottom:8px"><button class="secondary" id="allBtn" type="button">All records</button><button class="secondary" id="weekBtn" type="button">This week</button></div>
  <div id="records"><p class="small">No payments recorded yet.</p></div>
 </section>
@@ -87,6 +88,7 @@ button{border:0;border-radius:11px;padding:12px 14px;font:inherit;font-weight:70
   const today=rows.filter(isToday),week=rows.filter(isWeek);
   $('todayTotal').textContent=money(today.reduce((s,r)=>s+r.amount,0));$('todayCount').textContent=today.length+' payments';
   $('weekTotal').textContent=money(week.reduce((s,r)=>s+r.amount,0));$('weekCount').textContent=week.length+' payments (Mon–Sun)';
+  $('allTotal').textContent=money(rows.reduce((s,r)=>s+r.amount,0));$('allCount').textContent=rows.length+' payments in total';
   $('count').textContent=rows.length+' records';
   let q=$('search').value.trim().toLowerCase();
   let list=rows.filter(r=>(filter==='all'||isWeek(r))&&(!q||r.shop.toLowerCase().includes(q)||(r.invoice||'').toLowerCase().includes(q))).sort((a,b)=>new Date(b.date)-new Date(a.date));
@@ -112,7 +114,30 @@ button{border:0;border-radius:11px;padding:12px 14px;font:inherit;font-weight:70
   rows=editing?rows.map(r=>r.id===editing?record:r):[...rows,record];if(save()){reset();render();$('message').textContent='Payment saved on this device.'}
  });
  $('cancelBtn').onclick=reset;$('search').oninput=render;$('allBtn').onclick=()=>{filter='all';render()};$('weekBtn').onclick=()=>{filter='week';render()};
- $('exportBtn').onclick=()=>{if(!rows.length){$('message').textContent='No records to export.';return}let data=[['Shop','Amount NZD','Invoice','Date and time','Notes'],...rows.map(r=>[r.shop,r.amount.toFixed(2),r.invoice,r.date,r.notes])];let csv=data.map(a=>a.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');let blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Mayceys-Cash-Backup.csv';a.click();URL.revokeObjectURL(url)};
+ $('exportBtn').onclick=()=>{
+  if(!rows.length){$('message').textContent='No records to export.';return}
+  const all=rows.reduce((s,r)=>s+r.amount,0),week=rows.filter(isWeek).reduce((s,r)=>s+r.amount,0),today=rows.filter(isToday).reduce((s,r)=>s+r.amount,0);
+  let data=[['Mayceys Cash - Cash Collection Report'],['Total cash collected',all.toFixed(2)],["Today's cash",today.toFixed(2)],["This week's cash",week.toFixed(2)],[],['Shop','Amount NZD','Invoice','Date and time','Notes'],...rows.map(r=>[r.shop,r.amount.toFixed(2),r.invoice,r.date,r.notes]),[],['TOTAL CASH COLLECTED',all.toFixed(2)]];
+  let csv=data.map(a=>a.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
+  let blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Mayceys-Cash-Backup.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$('message').textContent='CSV backup exported with cash totals.';
+ };
+ function pdfEscape(s){return String(s??'').normalize('NFKD').replace(/[^\x20-\x7E]/g,' ').replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)');}
+ function makePDF(){
+  if(!rows.length){$('message').textContent='No records to export.';return}
+  const all=rows.reduce((s,r)=>s+r.amount,0),week=rows.filter(isWeek).reduce((s,r)=>s+r.amount,0),today=rows.filter(isToday).reduce((s,r)=>s+r.amount,0);
+  const sorted=[...rows].sort((a,b)=>new Date(a.date)-new Date(b.date));
+  const lines=['MAYCEYS CASH - CASH COLLECTION REPORT','Generated: '+new Date().toLocaleString('en-NZ'),'','TOTAL CASH COLLECTED (ALL TIME): '+money(all),"TODAY'S CASH: "+money(today),"THIS WEEK'S CASH (MON-SUN): "+money(week),'TOTAL PAYMENTS: '+rows.length,'','TRANSACTION DETAILS','------------------------------------------------------------'];
+  sorted.forEach((r,i)=>{lines.push((i+1)+'. '+r.shop+' | '+money(r.amount));lines.push('   Invoice: '+(r.invoice||'-')+' | '+new Date(r.date).toLocaleString('en-NZ'));if(r.notes)lines.push('   Notes: '+r.notes)});
+  lines.push('','------------------------------------------------------------','TOTAL CASH COLLECTED: '+money(all));
+  const chunks=[];for(let i=0;i<lines.length;i+=43)chunks.push(lines.slice(i,i+43));
+  const objects=[];let kids=[];objects[1]='<< /Type /Catalog /Pages 2 0 R >>';
+  chunks.forEach((chunk,idx)=>{const pn=3+idx*2,cn=pn+1;kids.push(pn+' 0 R');let stream='BT\n/F1 10 Tf\n50 790 Td\n14 TL\n';chunk.forEach(line=>{stream+='('+pdfEscape(line)+') Tj\nT*\n'});stream+='ET';objects[pn]='<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents '+cn+' 0 R >>';objects[cn]='<< /Length '+stream.length+' >>\nstream\n'+stream+'\nendstream'});
+  objects[2]='<< /Type /Pages /Kids ['+kids.join(' ')+'] /Count '+kids.length+' >>';
+  let pdf='%PDF-1.4\n',offsets=[0];for(let i=1;i<objects.length;i++){offsets[i]=pdf.length;pdf+=i+' 0 obj\n'+objects[i]+'\nendobj\n'}
+  let xref=pdf.length;pdf+='xref\n0 '+objects.length+'\n0000000000 65535 f \n';for(let i=1;i<objects.length;i++)pdf+=String(offsets[i]).padStart(10,'0')+' 00000 n \n';pdf+='trailer\n<< /Size '+objects.length+' /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
+  const blob=new Blob([pdf],{type:'application/pdf'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Mayceys-Cash-Report.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);$('message').textContent='PDF report downloaded with all-time, daily and weekly totals.';
+ }
+ $('pdfBtn').onclick=makePDF;
  reset();render();
  if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 })();
