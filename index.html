@@ -17,7 +17,7 @@ main{max-width:680px;margin:auto;padding:18px 15px 35px}
 header{display:flex;align-items:center;gap:12px;margin:8px 0 20px}
 .logo{width:52px;height:52px;border-radius:16px;background:#f0aa35;color:#173d32;display:grid;place-items:center;font-weight:900;font-size:22px}
 h1{font-size:23px;margin:0}header p{margin:3px 0 0;color:#607168;font-size:13px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.grid .card:last-child{grid-column:1/-1}
 .card{background:white;border:1px solid #e0e8e1;border-radius:16px;padding:15px;box-shadow:0 2px 8px #102d1710}
 .label{color:#64746b;font-size:13px}.total{font-size:26px;font-weight:800;margin:5px 0}.small{font-size:12px;color:#738178}
 h2{font-size:18px;margin:0 0 13px}
@@ -46,7 +46,8 @@ button{border:0;border-radius:11px;padding:12px 14px;font:inherit;font-weight:70
 <header><div class="logo">M$</div><div><h1>Mayceys Cash</h1><p>Personal cash collection book · NZD</p></div><span class="pill" style="margin-left:auto">Offline-ready</span></header>
 <div class="grid">
  <div class="card"><div class="label">Today's cash</div><div class="total" id="todayTotal">$0.00</div><div class="small" id="todayCount">0 payments</div></div>
- <div class="card"><div class="label">This week's cash</div><div class="total" id="weekTotal">$0.00</div><div class="small" id="weekCount">0 payments</div></div>
+ <div class="card"><div class="label">This week's cash</div><div class="total" id="weekTotal">$0.00</div><div class="small" id="weekCount">0 payments (Mon–Sun)</div></div>
+ <div class="card"><div class="label">All-time cash collected</div><div class="total" id="allTotal">$0.00</div><div class="small" id="allCount">0 payments in total</div></div>
 </div>
 <section class="card">
  <h2 id="formTitle">＋ Record cash payment</h2>
@@ -125,17 +126,65 @@ button{border:0;border-radius:11px;padding:12px 14px;font:inherit;font-weight:70
  function makePDF(){
   if(!rows.length){$('message').textContent='No records to export.';return}
   const all=rows.reduce((s,r)=>s+r.amount,0),week=rows.filter(isWeek).reduce((s,r)=>s+r.amount,0),today=rows.filter(isToday).reduce((s,r)=>s+r.amount,0);
-  const sorted=[...rows].sort((a,b)=>new Date(a.date)-new Date(b.date));
-  const lines=['MAYCEYS CASH - CASH COLLECTION REPORT','Generated: '+new Date().toLocaleString('en-NZ'),'','TOTAL CASH COLLECTED (ALL TIME): '+money(all),"TODAY'S CASH: "+money(today),"THIS WEEK'S CASH (MON-SUN): "+money(week),'TOTAL PAYMENTS: '+rows.length,'','TRANSACTION DETAILS','------------------------------------------------------------'];
-  sorted.forEach((r,i)=>{lines.push((i+1)+'. '+r.shop+' | '+money(r.amount));lines.push('   Invoice: '+(r.invoice||'-')+' | '+new Date(r.date).toLocaleString('en-NZ'));if(r.notes)lines.push('   Notes: '+r.notes)});
-  lines.push('','------------------------------------------------------------','TOTAL CASH COLLECTED: '+money(all));
-  const chunks=[];for(let i=0;i<lines.length;i+=43)chunks.push(lines.slice(i,i+43));
-  const objects=[];let kids=[];objects[1]='<< /Type /Catalog /Pages 2 0 R >>';
-  chunks.forEach((chunk,idx)=>{const pn=3+idx*2,cn=pn+1;kids.push(pn+' 0 R');let stream='BT\n/F1 10 Tf\n50 790 Td\n14 TL\n';chunk.forEach(line=>{stream+='('+pdfEscape(line)+') Tj\nT*\n'});stream+='ET';objects[pn]='<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents '+cn+' 0 R >>';objects[cn]='<< /Length '+stream.length+' >>\nstream\n'+stream+'\nendstream'});
-  objects[2]='<< /Type /Pages /Kids ['+kids.join(' ')+'] /Count '+kids.length+' >>';
-  let pdf='%PDF-1.4\n',offsets=[0];for(let i=1;i<objects.length;i++){offsets[i]=pdf.length;pdf+=i+' 0 obj\n'+objects[i]+'\nendobj\n'}
-  let xref=pdf.length;pdf+='xref\n0 '+objects.length+'\n0000000000 65535 f \n';for(let i=1;i<objects.length;i++)pdf+=String(offsets[i]).padStart(10,'0')+' 00000 n \n';pdf+='trailer\n<< /Size '+objects.length+' /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
-  const blob=new Blob([pdf],{type:'application/pdf'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Mayceys-Cash-Report.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);$('message').textContent='PDF report downloaded with all-time, daily and weekly totals.';
+  const sorted=[...rows].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const W=595,H=842,CONTENT=511;
+  const fmtDate=v=>{const d=new Date(v);return isNaN(d)?String(v):d.toLocaleString('en-NZ',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true})};
+  const wrap=(s,max)=>{let words=String(s??'').replace(/\s+/g,' ').trim().split(' '),out=[],line='';for(const word of words){if(!word)continue;let test=line?line+' '+word:word;if(test.length>max&&line){out.push(line);line=word}else line=test}if(line)out.push(line);return out.length?out:['-']};
+  const pages=[];let page=[],y=0;
+  const add=c=>page.push(c);
+  const rect=(x,yy,w,h,fill)=>add(`${fill} rg ${x} ${yy} ${w} ${h} re f`);
+  const line=(x1,y1,x2,y2)=>add(`0.86 0.90 0.87 RG 0.7 w ${x1} ${y1} m ${x2} ${y2} l S`);
+  const txt=(x,yy,size,str,color='0.12 0.20 0.16',font='F1')=>add(`BT /${font} ${size} Tf ${color} rg ${x} ${yy} Td (${pdfEscape(str)}) Tj ET`);
+  const cash=n=>new Intl.NumberFormat('en-NZ',{style:'currency',currency:'NZD'}).format(n);
+  function header(first){
+    page=[];rect(0,742,595,100,'0.08 0.25 0.19');
+    txt(42,805,9,'MAYCEYS  /  CASH MANAGEMENT','0.78 0.88 0.82','F2');
+    txt(42,775,22,'Cash collection report','1 1 1','F2');
+    txt(42,755,8,'PRIVATE RECORD  |  NEW ZEALAND DOLLARS','0.82 0.90 0.85');
+    txt(420,805,8,'GENERATED','0.78 0.88 0.82','F2');
+    txt(420,788,9,new Date().toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}),'1 1 1','F2');
+    y=720;
+    if(first){
+      txt(42,y,9,'COLLECTION SUMMARY','0.22 0.38 0.30','F2');y-=17;
+      const gap=9,cw=(CONTENT-gap*2)/3,ch=66;
+      [['ALL-TIME TOTAL',cash(all)],['THIS WEEK',cash(week)],['TODAY',cash(today)]].forEach((c,i)=>{let x=42+i*(cw+gap);rect(x,y-ch,cw,ch,'0.94 0.97 0.94');txt(x+10,y-21,7,c[0],'0.34 0.45 0.39','F2');txt(x+10,y-47,14,c[1],'0.08 0.25 0.19','F2')});
+      y-=ch+22;txt(42,y,8,`PAYMENTS RECORDED: ${rows.length}`,'0.34 0.45 0.39','F2');y-=23;
+    }
+    txt(42,y,9,'PAYMENT DETAILS','0.22 0.38 0.30','F2');y-=16;
+    rect(42,y-22,CONTENT,24,'0.08 0.25 0.19');
+    txt(50,y-14,7,'DATE','1 1 1','F2');txt(153,y-14,7,'SHOP / CUSTOMER','1 1 1','F2');
+    txt(342,y-14,7,'INVOICE','1 1 1','F2');txt(465,y-14,7,'AMOUNT (NZD)','1 1 1','F2');y-=22;
+  }
+  const finish=()=>pages.push(page.join('\n'));
+  header(true);
+  sorted.forEach((r,i)=>{
+    const shop=wrap(r.shop,29),invoice=wrap(r.invoice||'-',15),notes=r.notes?wrap('Note: '+r.notes,83):[];
+    const baseLines=Math.max(shop.length,invoice.length,1),n=baseLines+notes.length,rh=Math.max(34,n*11+12);
+    if(y-rh<62){finish();header(false)}
+    if(i%2===0)rect(42,y-rh,CONTENT,rh,'0.965 0.975 0.965');
+    txt(50,y-17,7,fmtDate(r.date).slice(0,19));
+    shop.forEach((v,j)=>txt(153,y-17-j*11,8,v));
+    invoice.forEach((v,j)=>txt(342,y-17-j*11,8,v));
+    txt(465,y-17,8,cash(r.amount),'0.08 0.25 0.19','F2');
+    notes.forEach((v,j)=>txt(153,y-17-(Math.max(shop.length,invoice.length)+j)*11,7,v,'0.39 0.45 0.41'));
+    line(42,y-rh,553,y-rh);y-=rh;
+  });
+  if(y<120){finish();header(false)}
+  y-=12;rect(42,y-48,CONTENT,48,'0.91 0.95 0.92');
+  txt(54,y-19,8,'TOTAL CASH COLLECTED','0.22 0.38 0.30','F2');
+  txt(430,y-31,15,cash(all),'0.08 0.25 0.19','F2');finish();
+  const objects=[];objects[1]='<< /Type /Catalog /Pages 2 0 R >>';objects[2]='';const kids=[];
+  pages.forEach((stream,i)=>{
+    const pn=objects.length;objects.push('');const cn=objects.length;objects.push('');
+    kids.push(`${pn} 0 R`);
+    const full=stream+`\nBT /F1 8 Tf 0.40 0.47 0.43 rg 42 35 Td (Mayceys Cash  |  Confidential personal record) Tj ET\nBT /F1 8 Tf 0.40 0.47 0.43 rg 500 35 Td (${i+1} / ${pages.length}) Tj ET`;
+    objects[pn]=`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> /F2 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> >> >> /Contents ${cn} 0 R >>`;
+    objects[cn]=`<< /Length ${full.length} >>\nstream\n${full}\nendstream`;
+  });
+  objects[2]=`<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${kids.length} >>`;
+  let pdf='%PDF-1.4\n',offsets=[0];for(let i=1;i<objects.length;i++){offsets[i]=pdf.length;pdf+=`${i} 0 obj\n${objects[i]}\nendobj\n`}
+  const xref=pdf.length;pdf+=`xref\n0 ${objects.length}\n0000000000 65535 f \n`;for(let i=1;i<objects.length;i++)pdf+=String(offsets[i]).padStart(10,'0')+' 00000 n \n';pdf+=`trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  const blob=new Blob([pdf],{type:'application/pdf'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Mayceys-Cash-Professional-Report.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);$('message').textContent='Professional PDF report downloaded.';
  }
  $('pdfBtn').onclick=makePDF;
  reset();render();
